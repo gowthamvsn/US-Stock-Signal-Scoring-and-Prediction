@@ -127,20 +127,14 @@ df_with_indicators = pd.concat([compute_indicators(group) for _, group in groupe
 # Add pass/fail condition flags instead of score
 flags = []
 for ticker, group in df_with_indicators.groupby('Ticker'):
-#   latest = group.dropna().iloc[-1] if not group.dropna().empty else pd.Series()
     required_cols = ['RSI', 'MACD_diff', 'Close', 'EMA50', 'DollarVolume', 'Volume', 'EPS','GK_Volatility', 'ATR', 'Log_Close', 'Log_BB_Lower', 'Stoch_K', 'Stoch_D', 'ADX', 'ROC', 'CCI', 'OBV', 'BB_Width'] #
-    # missing_cols = [col for col in required_cols if col not in group.columns]
-    # if missing_cols:
-    #     print(f"\n⚠️ Skipping {ticker}: missing columns {missing_cols}")
-    #     print(group[['Date'] + [col for col in required_cols if col in group.columns]].tail(3))
-    #     continue
+
 
     group_clean = group.dropna(subset=required_cols)
     if group_clean.empty:
         continue
     latest = group_clean.iloc[-1]
     if not latest.empty:
-    # latest = group.iloc[-1]
         result = {
         'Ticker': ticker,
         'RSI_under_30': int(latest['RSI'] < 30),
@@ -193,10 +187,6 @@ for ticker, group in df_analysis.groupby('Ticker'):
 
 
 flags_df = pd.DataFrame(flags)
-#flags_df.to_csv(rf"D:\tickproject\stock_data\condition_flags_{TODAY}.csv", index=False)
-#print("✅ Saved indicator condition flags")
-#df_with_indicators.to_csv(rf"D:\tickproject\stock_data\technical_indicators_{TODAY}.csv", index=False)
-#print("✅ Saved technical indicators")
 
 future_df = pd.DataFrame(future_gains)
 flags_df = flags_df.merge(future_df, on='Ticker', how='left')
@@ -205,17 +195,13 @@ flags_df['Target'] = (flags_df['FutureGain_5d'] >= 0.06).astype(int)
 print(" lets see how target is ")
 print(flags_df['FutureGain_5d'].describe())
 
-#flags_df.to_csv(rf"D:\tickproject\stock_data\condition_flags_with_target_{TODAY}.csv", index=False)
 stage3time = time.time()
 print(" time taken to complete stage 3 is ", stage3time  - stage2time)
-# # === STAGE 4: Correlate Indicator Flags with Target ===
-# correlation_output_path = rf"D:\tickproject\stock_data\correlation_matrix_{TODAY}.csv"
 correlation = flags_df.drop(columns=['Ticker', 'PeakDate', 'FutureGain_5d']).corr()
-#correlation['Target'].sort_values(ascending=False).to_csv(correlation_output_path)
-# print("✅ Saved correlation results")
 
 stage4time = time.time()
 print(" time taken to complete stage 4 ", stage4time - stage3time)
+
 # === STAGE 5: Generate Weights Based on Correlation ===
 weights_path = rf"D:\tickproject\stock_data\indicator_weights_{TODAY_STR}.csv"
 target_corr = correlation['Target'].drop('Target')
@@ -258,171 +244,6 @@ print("✅ Saved final weighted scores")
 
 stage6time = time.time()
 print(" time taken to complete stage 6 ", stage6time - stage5time)
-
-# === STAGE 7: Train and Evaluate ML Model ===
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-ml_df = flags_df.dropna(subset=['Target','FutureGain_5d','PeakDate']).copy()
-#print("columns of ml df ", ml_df.columns)
-feature_cols = [col for col in weights_dict if col in ml_df.columns]
-#print(" feature cols before training with ML", feature_cols)
-X = ml_df[feature_cols]
-y = ml_df['Target']
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, stratify=y, random_state=42)
-#print("y train values ", y_train.value_counts())
-
-model = RandomForestClassifier(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-
-print("📊 Classification Report:")
-print(classification_report(y_test, y_pred))
-
-stage7time = time.time()
-print(" time taken to complete stage 7 ", stage7time - stage6time)
-
-
-# # === STAGE 8: Visualize Score Distribution vs. Target ===
-# sns.boxplot(data=ml_df, x='Target', y='Score')
-# plt.title("Score Distribution by Target")
-# plt.savefig(rf"D:\tickproject\stock_data\score_vs_target_{TODAY}.png")
-# print("✅ Saved boxplot: score vs. target")
-
-
-stage8time = time.time()
-print(" time taken to complete stage 8 ", stage8time - stage7time)
-
-
-# === STAGE 9: Save model for future predictions ===
-import joblib
-model_path = rf"D:\tickproject\stock_data\rf_model_{TODAY_STR}.pkl"
-joblib.dump(model, model_path)
-print(f"✅ Saved trained model to {model_path}")
-
-
-# === STAGE 10: Predict on New Tickers Using Saved Model ===
-from joblib import load
-
-MODEL_FILE = model_path  # already saved as rf_model_<TODAY>.pkl
-PREDICT_OUTPUT = rf"D:\tickproject\stock_data\predictions_US_{TODAY_STR}.csv"
-
-print("🔮 Predicting on new data...")
-
-# Load model
-predict_model = load(MODEL_FILE)
-
-# Filter for post-prediction data
-df_future_predict = df_all[(df_all['Date'] >= pd.to_datetime(PREDICT_DATE_START)) & (df_all['Date'] <= pd.to_datetime(PREDICT_DATE_END))].copy()
-#print("future dataframe is ", df_future_predict)
-# Compute indicators for prediction
-# for ticker, group in df_future_predict.groupby('Ticker'):
-#     print(f"{ticker}: {len(group)} rows")
-
-df_future_indicators = pd.concat([compute_indicators(group) for _, group in df_future_predict.groupby('Ticker')])
-#print(" future indicators columns are ",df_future_indicators.columns )
-# Generate flags as usual
-prediction_flags = []
-for ticker, group in df_future_indicators.groupby('Ticker'):
-    group = group.copy()
-    # if group.shape[0] < 5:
-    #     continue
-    group = compute_indicators(group)
-#    print(f"{ticker} → computed {group.shape[0]} rows with indicators")
-
-    latest = group.iloc[-1]
-    # if any(pd.isna(latest[col]) for col in required_cols if col in group.columns):
-    #     print(f"⚠️ Skipping {ticker}: latest row has NaNs in indicators")
-    #     continue
-
-    # if not all(col in group.columns for col in required_cols):
-    #     print(f"⛔ {ticker} missing some required columns.")
-    #     continue
-
-    # group = group.tail(20).dropna()
-    # if group.empty:
-    #     continue
-    # latest = group.iloc[-1]
-
-    #required_cols = ['RSI', 'MACD_diff', 'Close', 'EMA50', 'DollarVolume', 'Volume', 'EPS', 'GK_Volatility', 'ATR', 'Log_Close', 'Log_BB_Lower', 'Stoch_K', 'Stoch_D']
-   # if not all(col in group.columns for col in required_cols):
-    #    continue
-    #print("group is ", group)
-    #group_clean = group.dropna(subset=required_cols)
-    #print(" group clean is ", group_clean)
-    #if group_clean.empty:
-     #   continue
-    #latest = group_clean.iloc[-1]
-#    print("latest is ", latest)
-    if not latest.empty:
-        result = {
-            'Ticker': ticker,
-            'RSI_under_30': int(latest['RSI'] < 30),
-            'MACD_positive': int(latest['MACD_diff'] > 0),
-            'Close_above_EMA50': int(latest['Close'] > latest['EMA50']),
-            'High_DollarVolume': int(latest['DollarVolume'] > group['DollarVolume'].rolling(20).mean().iloc[-1]),
-            'EPS_positive': int(pd.notna(latest['EPS']) and latest['EPS'] > 0),
-            'High_GK_Volatility': int(latest['GK_Volatility'] > group['GK_Volatility'].median()),
-            'ATR_above_avg': int(latest['ATR'] > group['ATR'].rolling(14).mean().iloc[-1]),
-            'Log_Close_above_BB_Lower': int(latest['Log_Close'] > latest['Log_BB_Lower']),
-            'Stoch_K_crossover': int(group['Stoch_K'].iloc[-2] < group['Stoch_D'].iloc[-2] and latest['Stoch_K'] > latest['Stoch_D'] and latest['Stoch_K'] < 20),
-            'ADX_above_20': int(latest['ADX'] > 20),  # Strong trend
-            'ROC_above_2': int(latest['ROC'] > 2),    # Price gain acceleration
-            'CCI_extreme': int(abs(latest['CCI']) > 100),  # Overbought or oversold
-            'OBV_rising': int(latest['OBV'] > group['OBV'].rolling(5).mean().iloc[-1]),
-            'BB_width_expansion': int(latest['BB_Width'] > group['BB_Width'].rolling(20).mean().iloc[-1])
-        
-        }
-        #future_flags.append(result)
-        prediction_flags.append(result)
-
-future_flags_df  = pd.DataFrame(prediction_flags)
-#print("future df is ",future_flags_df)
-model = load(model_path)
-predict_feature_cols = [
-'RSI_under_30', 'MACD_positive', 'Close_above_EMA50',
-'High_DollarVolume',  'EPS_positive','High_GK_Volatility',
-'ATR_above_avg', 'Log_Close_above_BB_Lower', 'Stoch_K_crossover', 'ADX_above_20',
-'ROC_above_2',
-'CCI_extreme',
-'OBV_rising',
-'BB_width_expansion'
-]# 
-
-future_flags_df ['Predicted_Prob'] = model.predict_proba(future_flags_df [predict_feature_cols])[:, 1]
-#future_flags_df ['Predicted_Prob'] = model.predict_proba(future_flags_df [predict_feature_cols])
-
-print("Proba columns:", future_flags_df.columns)
-print("Proba shape:", future_flags_df.shape)
-#print("Proba values sample:\n", future_flags_df[:50])
-
-
-future_flags_df.sort_values('Predicted_Prob', ascending=False).to_csv(rf"D:\tickproject\stock_data\predictions_US_{TODAY_STR}.csv", index=False)
-print("✅ Saved predictions on new data")
-
-#future_flags_df = pd.DataFrame(future_flags)
-#print("future flag df is ", future_flags_df.head(5))
-# Predict using the model
-# X_new = future_flags_df[feature_cols]
-# future_flags_df['Predicted_Prob'] = predict_model.predict_proba(X_new)[:, 1]
-
-# predict_feature_cols = [
-#     'RSI_under_30', 'MACD_positive', 'Close_above_EMA50',
-#     'High_DollarVolume', 'EPS_positive', 'High_GK_Volatility',
-#     'ATR_above_avg', 'Log_Close_above_BB_Lower', 'Stoch_K_crossover'
-# ]
-
-# future_flags_df['Predicted_Prob'] = model.predict_proba(future_flags_df[predict_feature_cols])[:, 1]
-
-
-
-# # Save predictions
-# future_flags_df.sort_values('Predicted_Prob', ascending=False).to_csv(PREDICT_OUTPUT, index=False)
-# print(f"✅ Saved predictions to {PREDICT_OUTPUT}")
-
 
 
 end_time = time.time()
