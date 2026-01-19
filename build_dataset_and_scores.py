@@ -1,51 +1,68 @@
+# ============================================================
+# BUILD DATASET, INDICATORS, AND SIGNAL SCORES
+# ============================================================
 
-import joblib
+# ==============================
+# IMPORTS & CONFIG
+# ==============================
+import os, time
+import numpy as np
+import pandas as pd
+from datetime import datetime, timedelta
+from pandas.tseries.offsets import BDay
+import yfinance as yf
+from ta import momentum, trend, volatility, volume
 
-start_time = time.time()
-
-# === CONFIG ===
+# ==============================
+# DATE CONFIGURATION
+# ==============================
 TODAY = datetime.today()
 TODAY_STR = TODAY.strftime("%Y-%m-%d")
 now_hour = TODAY.hour
 expected_latest = (TODAY - BDay(1)).date() if now_hour < 15 else TODAY.date()
-print(" prediction to be date " , expected_latest)
-TICKER_FILE = r"D:\\tickproject\\ticker texts\\final_filtered_tickers.txt"
-MASTER_FILE = rf"D:\\tickproject\\stock_data\\tickersdetails_US_master.csv"
-START_DATE = "2024-10-01"
-END_DATE_FULL = (TODAY + timedelta(days=0)).strftime('%Y-%m-%d')
-print("this is the date till which im going to download", END_DATE_FULL)
-END_DATE_ANALYSIS = (TODAY - BDay(9)).date().strftime('%Y-%m-%d')
-print("this is the date till which analysis model is built",END_DATE_ANALYSIS)
-FUTURE_END = expected_latest
-PREDICT_DATE_START = "2025-04-01"
-PREDICT_DATE_END = expected_latest
 
-# === INDICATOR FUNCTION ===
+START_DATE = "2024-10-01"
+END_DATE_FULL = TODAY.strftime('%Y-%m-%d')
+END_DATE_ANALYSIS = (TODAY - BDay(9)).date().strftime('%Y-%m-%d')
+FUTURE_END = expected_latest
+
+# ==============================
+# INDICATOR ENGINEERING
+# ==============================
 def compute_indicators(df):
-    if len(df) > 14:
-        try:
-            df['DollarVolume'] = df['Close'] * df['Volume']
-            df['Log_Close'] = np.log(df['Close'])
-            df['Log_BB_Lower'] = volatility.BollingerBands(df['Log_Close']).bollinger_lband()
-            df['GK_Volatility'] = 0.5 * (np.log(df['High'] / df['Low'])**2) - (2 * np.log(2) - 1) * (np.log(df['Close'] / df['Open'])**2)
-            df['RSI'] = momentum.RSIIndicator(df['Close']).rsi()
-            df['MACD_diff'] = trend.MACD(df['Close']).macd_diff()
-            df['ATR'] = volatility.AverageTrueRange(df['High'], df['Low'], df['Close']).average_true_range()
-            df['EMA50'] = df['Close'].ewm(span=50).mean()
-            stoch = momentum.StochasticOscillator(df['High'], df['Low'], df['Close'])
-            df['Stoch_K'] = stoch.stoch()
-            df['Stoch_D'] = stoch.stoch_signal()
-            df['ADX'] = trend.ADXIndicator(df['High'], df['Low'], df['Close']).adx()
-            df['ROC'] = momentum.ROCIndicator(df['Close'], window=10).roc()
-            df['CCI'] = trend.CCIIndicator(df['High'], df['Low'], df['Close'], window=20).cci()
-            df['OBV'] = volume.OnBalanceVolumeIndicator(df['Close'], df['Volume']).on_balance_volume()
-            bb = volatility.BollingerBands(df['Close'])
-            df['BB_Width'] = bb.bollinger_hband() - bb.bollinger_lband()
-        except Exception as e:
-            print("⚠️ Indicator calculation error:", e)
-            return pd.DataFrame()
-        return df
-    return pd.DataFrame()
+    if len(df) < 20:
+        return pd.DataFrame()
+
+    df = df.copy()
+    df['DollarVolume'] = df['Close'] * df['Volume']
+    df['Log_Close'] = np.log(df['Close'])
+    bb_log = volatility.BollingerBands(df['Log_Close'])
+    df['Log_BB_Lower'] = bb_log.bollinger_lband()
+
+    df['GK_Volatility'] = (
+        0.5 * np.log(df['High']/df['Low'])**2 -
+        (2*np.log(2)-1)*np.log(df['Close']/df['Open'])**2
+    )
+
+    df['RSI'] = momentum.RSIIndicator(df['Close']).rsi()
+    df['MACD_diff'] = trend.MACD(df['Close']).macd_diff()
+    df['ATR'] = volatility.AverageTrueRange(df['High'], df['Low'], df['Close']).average_true_range()
+    df['EMA50'] = df['Close'].ewm(span=50).mean()
+
+    stoch = momentum.StochasticOscillator(df['High'], df['Low'], df['Close'])
+    df['Stoch_K'] = stoch.stoch()
+    df['Stoch_D'] = stoch.stoch_signal()
+
+    df['ADX'] = trend.ADXIndicator(df['High'], df['Low'], df['Close']).adx()
+    df['ROC'] = momentum.ROCIndicator(df['Close'], window=10).roc()
+    df['CCI'] = trend.CCIIndicator(df['High'], df['Low'], df['Close']).cci()
+    df['OBV'] = volume.OnBalanceVolumeIndicator(df['Close'], df['Volume']).on_balance_volume()
+
+    bb = volatility.BollingerBands(df['Close'])
+    df['BB_Width'] = bb.bollinger_hband() - bb.bollinger_lband()
+
+    return df
+
 
 # === FETCH TICKERS ===
 with open(TICKER_FILE) as f:
