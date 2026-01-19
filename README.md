@@ -16,16 +16,21 @@ The system combines:
 
 ## Why This Project?
 
-Most retail trading strategies rely on fixed indicator rules or black-box models.
-This project bridges the gap by:
+Most retail trading strategies either rely on fixed technical rules
+or use black-box models that are hard to interpret.
 
-- Using **interpretable technical signals**
-- Measuring **forward realized price movement**
-- Assigning **data-driven weights** to indicators
-- Validating signals with **machine learning**
-- Producing **ranked probability-based predictions**
+This project takes a middle-ground approach by:
+- Using clear, well-known technical indicators
+- Measuring what actually happens after the signal
+- Assigning weights based on historical outcomes
+- Validating signals with a machine learning model
+- Ranking stocks by predicted likelihood of upside
 
-The goal is not day trading, but **systematic signal evaluation**.
+The focus is on evaluating signal quality in a systematic way,
+not on day trading or execution.
+
+In backtesting, the signal set showed a high hit rate
+for identifying short-term upside moves.
 
 ---
 
